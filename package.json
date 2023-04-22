@@ -1,0 +1,24 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "Server for deebee",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DeeBee-UCLA/server.git"
+  },
+  "author": "DeeBee-UCLA",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/DeeBee-UCLA/server/issues"
+  },
+  "homepage": "https://github.com/DeeBee-UCLA/server#readme",
+  "dependencies": {
+    "express": "^4.18.2",
+    "http": "^0.0.1-security",
+    "socketio": "^1.0.0"
+  }
+}
