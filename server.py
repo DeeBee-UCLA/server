@@ -53,7 +53,8 @@ class WebSocketServer:
             self.client_data_host[msg_obj["username"]] = dict()
             resp = {
                 "status": "Success",
-                "message": msg_obj["username"]
+                "message": msg_obj["username"],
+                "requestType": "Init"
             }
             await websocket.send(json.dumps(resp))
             print(f">> Client {websocket.id} username: " + msg_obj["username"])
@@ -63,7 +64,8 @@ class WebSocketServer:
             print(">> Active Connections: " + self.connections)
             resp = {
                 "status": "Failure",
-                "message": err_msg
+                "message": err_msg,
+                "requestType": "Init"
             }
             print("ERROR: Client username registration failed!")
             await websocket.send(json.dumps(resp))
@@ -88,7 +90,8 @@ class WebSocketServer:
             print(">> Active Connections: " + self.connections)
             resp = {
                 "status": "Failure",
-                "message": err_msg
+                "message": err_msg,
+                "requestType": "Init"
             }
             print("ERROR: Host username registration failed!")
             await websocket.send(json.dumps(resp))
@@ -191,27 +194,29 @@ class WebSocketServer:
             print("ERROR: Client not initialized properly")
             resp = {
                 "status": "Failure",
-                "message": "Client not initialized properly"
+                "message": "Client not initialized properly",
+                "requestType": "RetrieveFile"
             }
             await websocket.send(json.dumps(resp))
 
-    async def handle_client_message(self, websocket, message):
-        username = find_key_by_value(
-            self.client_username_to_session_id, websocket.id)
-        if username:
-            print(
-                f"Received message: {message} from client {username} with id {websocket.id}")
-            resp = {
-                "status": "Success",
-                "message": message
-            }
-            await websocket.send(json.dumps(resp))
-        else:
-            resp = {
-                "status": "Fail",
-                "message": "Connection not initialized properly"
-            }
-            await websocket.send(json.dumps(resp))
+    # async def handle_client_message(self, websocket, message):
+    #     username = find_key_by_value(
+    #         self.client_username_to_session_id, websocket.id)
+    #     if username:
+    #         print(
+    #             f"Received message: {message} from client {username} with id {websocket.id}")
+    #         resp = {
+    #             "status": "Success",
+    #             "message": message,
+    #             "requestType": "RetrieveFile"
+    #         }
+    #         await websocket.send(json.dumps(resp))
+    #     else:
+    #         resp = {
+    #             "status": "Fail",
+    #             "message": "Connection not initialized properly"
+    #         }
+    #         await websocket.send(json.dumps(resp))
 
     async def handle_disconnect(self, websocket):
         print(f"{websocket.id} disconnected")
