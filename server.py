@@ -7,7 +7,6 @@ import base64
 import queue
 from collections import defaultdict
 
-import numpy as np
 
 dir = "files"
 
@@ -152,12 +151,15 @@ class WebSocketServer:
         data = json_obj["body"]
         print(">> Freeing File: " + filename)
         if self.active_hosts:
-            available_hosts = [
-                host for host in self.active_hosts]
+            available_hosts = list(self.active_hosts)
 
-            remove_element(self.lru, find_key_by_value(
+            self.lru = remove_element(self.lru, find_key_by_value(
                 self.host_username_to_session_id, websocket.id)[0])
+            print(">> Queue before: ")
+            print(list(self.lru.queue))
             available_host_username = get_choice(available_hosts, self.lru)
+            print(">> Queue after: ")
+            print(list(self.lru.queue))
             print(">> New Node: " + filename)
             available_host_id = self.host_username_to_session_id[available_host_username]
             print(">> Host available with username " +
@@ -193,10 +195,15 @@ class WebSocketServer:
             # available_host_username = next(
             #     iter(self.active_host_username_to_session_id))
             # available_host_id = self.active_host_username_to_session_id[available_host_username]
-            available_hosts = [
-                host for host in self.active_hosts]
+            available_hosts = list(self.active_hosts)
+            print(">> Available Hosts")
+            print(available_hosts)
             available_host_username = get_choice(available_hosts, self.lru)
+            print(">> Available Host Username")
+            print(available_host_username)
             available_host_id = self.host_username_to_session_id[available_host_username]
+            print(">> Available Host ID")
+            print(available_host_id)
             print(">> Host available with username " +
                   available_host_username + " id " + available_host_id)
             available_host_socket = self.socket_id_to_socket[available_host_id]
@@ -412,6 +419,7 @@ class WebSocketServer:
         if host:
             self.host_username_to_session_id[host[0]] = None
             self.active_hosts.remove(host[0])
+            self.lru = remove_element(self.lru, host[0])
 
         if session_id in self.socket_id_to_socket:
             del self.socket_id_to_socket[session_id]
