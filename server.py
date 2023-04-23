@@ -4,7 +4,12 @@ import uuid
 import json
 import os
 import base64
+import queue
 from collections import defaultdict
+
+import numpy as np
+
+dir = "files"
 
 # utility functions
 
@@ -22,6 +27,24 @@ def get_json_obj(message):
     return msg_obj
 
 
+def remove_element(q, x):
+    new_q = queue.Queue()
+    while not q.empty():
+        item = q.get()
+        if item != x:
+            new_q.put(item)
+    return new_q
+
+
+def get_choice(hosts_list, q):
+    for host in hosts_list:
+        if host not in q.queue:
+            q.put(host)
+    lru_item = q.get()
+    q.put(lru_item)
+    return lru_item
+
+
 class WebSocketServer:
     # websocket constructor
     def __init__(self, host, port):
@@ -31,13 +54,16 @@ class WebSocketServer:
         self.connections = set()
         # dict of the client username mapped to session id
         self.client_username_to_session_id = dict()
-        self.active_host_username_to_session_id = dict()
+        self.host_username_to_session_id = dict()
+        self.active_hosts = set()
         self.client_data_host = defaultdict(dict)
         self.socket_id_to_socket = dict()
         self.retrieval_queue = dict()  # Host:filename -> client
+        self.lru = queue.Queue()
 
     # This method handles a new connection and adds it to a set
     # of all connections
+
     async def handle_new_connection(self, websocket):
         print(">> New incoming connection!")
         session_id = str(uuid.uuid4())
@@ -76,8 +102,9 @@ class WebSocketServer:
     async def init_host(self, websocket, msg_obj):
         print(f">> Host {websocket.id} initializing!")
         if websocket.id in self.connections:
-            self.active_host_username_to_session_id[msg_obj["username"]
-                                                    ] = websocket.id
+            self.host_username_to_session_id[msg_obj["username"]
+                                             ] = websocket.id
+            self.active_hosts.add(msg_obj["username"])
             resp = {
                 "status": "Success",
                 "message": msg_obj["username"],
@@ -98,19 +125,86 @@ class WebSocketServer:
             print("ERROR: Host username registration failed!")
             await websocket.send(json.dumps(resp))
 
+    async def redistribute_files(self, websocket, json_obj):
+        username = find_key_by_value(
+            self.host_username_to_session_id, websocket.id)[0]
+        print(">> Redistributing File request from host: " + username)
+        filenames = json_obj['filenames']
+        if len(self.active_hosts) >= 2:
+            for filename in filenames:
+                print(">> Requesting body for file: " + filename)
+                req = {
+                    "requestType": "FreeFile",
+                    "filename": filename
+                }
+                await websocket.send(json.dumps(req))
+            print(">> Removing host from active hosts: " + username)
+            self.active_hosts.remove(username)
+            resp = {
+                "requestType": "RedistributeFiles",
+                "status": "Failure",
+                "filename": ""
+            }
+            await websocket.send(json.dumps(resp))
+
+    async def free_file(self, websocket, json_obj):
+        filename = json_obj['filename']
+        data = json_obj["body"]
+        print(">> Freeing File: " + filename)
+        if self.active_hosts:
+            available_hosts = [
+                host for host in self.active_hosts]
+
+            remove_element(self.lru, find_key_by_value(
+                self.host_username_to_session_id, websocket.id)[0])
+            available_host_username = get_choice(available_hosts, self.lru)
+            print(">> New Node: " + filename)
+            available_host_id = self.host_username_to_session_id[available_host_username]
+            print(">> Host available with username " +
+                  available_host_username + " id " + available_host_id)
+            available_host_socket = self.socket_id_to_socket[available_host_id]
+
+            req = {
+                "requestType": "SaveFile",
+                "filename": filename,
+                "body": data
+            }
+
+            print(">> Changing the client_file_host ds")
+            old_username = find_key_by_value(
+                self.host_username_to_session_id, websocket.id)[0]
+            new_username = find_key_by_value(
+                self.host_username_to_session_id, available_host_id)[0]
+            for client in self.client_data_host:
+                if filename in self.client_data_host[client]:
+                    if self.client_data_host[client][filename] == old_username:
+                        self.client_data_host[client][filename] = new_username
+            print(">> " + str(self.client_data_host))
+            await available_host_socket.send(json.dumps(req))
+
     async def send_file_to_host(self, websocket, msg_obj):
         print(">> Finding available host")
-        try:
-            available_host_username = next(
-                iter(self.active_host_username_to_session_id))
-            available_host_id = self.active_host_username_to_session_id[available_host_username]
+        if self.active_hosts:
+            # every time a new saveFile request is made
+            # I will check all hosts in my queue, and chose the
+            #  one that is not present in the queue
+            # if all are in queue, I will pop the top of the queue and insert it
+            # backwards
+            # available_host_username = next(
+            #     iter(self.active_host_username_to_session_id))
+            # available_host_id = self.active_host_username_to_session_id[available_host_username]
+            available_hosts = [
+                host for host in self.active_hosts]
+            available_host_username = get_choice(available_hosts, self.lru)
+            available_host_id = self.host_username_to_session_id[available_host_username]
             print(">> Host available with username " +
                   available_host_username + " id " + available_host_id)
             available_host_socket = self.socket_id_to_socket[available_host_id]
             # available =host socket is the socket of the host I will request a file from
             # Open the file in binary mode and read its contents
             filename = msg_obj["filename"]
-            with open(filename, "rb") as file:
+            file_path = os.path.join(dir, filename)
+            with open(file_path, "rb") as file:
                 file_contents = file.read()
             print(">> Matching file found: " + filename)
             base64_str = base64.b64encode(file_contents).decode("utf-8")
@@ -121,15 +215,20 @@ class WebSocketServer:
                 "body": base64_str
             }
 
+            # delete file
+            os.remove(file_path)
+            print(">> Deleting file with path " +
+                  file_path + " from server")
+
             self.client_data_host[msg_obj["username"]
-                                  ][filename] = available_host_id
+                                  ][filename] = available_host_username
             print(">> Sending file with filename " + filename)
 
             await available_host_socket.send(json.dumps(req))
-        except StopIteration as e:
+        else:
             print("ERROR: Host username registration failed!")
             # this is the client websocket the error will be sent to
-            raise e
+            raise Exception("No available host")
 
     async def client_save_file(self, websocket, msg_obj):
         username = find_key_by_value(
@@ -143,7 +242,10 @@ class WebSocketServer:
             base64_str = msg_obj["body"]
             base64_bytes = base64.b64decode(base64_str)
             # write bytes to file
-            with open(filename, "wb") as f:
+            file_path = os.path.join(dir, filename)
+            if not os.path.exists(dir):
+                os.makedirs(dir)
+            with open(file_path, "wb") as f:
                 f.write(base64_bytes)
             suc_msg = "File created with name: " + filename
             print(">> " + suc_msg)
@@ -160,12 +262,17 @@ class WebSocketServer:
                 await websocket.send(json.dumps(resp))
             except Exception as e:
                 # handle the exception here
-                print("ERROR: No active hosts")
+                print("ERROR: " + str(e))
                 resp = {
                     "status": "Failure",
                     "message": "No active hosts",
                     "requestType": "SaveFile"
                 }
+                # delete file
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    print(">> Delecting file with path " +
+                          file_path + " from server")
                 await websocket.send(json.dumps(resp))
 
         else:
@@ -181,11 +288,12 @@ class WebSocketServer:
         filename = msg_obj["filename"]
         print(">> Data Retrieval started from host")
         client_data_dict = self.client_data_host[username]
-        host_id = client_data_dict[filename]
-        if host_id:
+        host_username = client_data_dict[filename]
+        if host_username:
+            host_id = self.host_username_to_session_id[host_username]
             host_socket = self.socket_id_to_socket[host_id]
             print(">> Host socket " + host_id + " has the data")
-            if find_key_by_value(self.active_host_username_to_session_id, host_id):
+            if find_key_by_value(self.host_username_to_session_id, host_id):
                 print(">> Required host is online")
                 req = {
                     "requestType": "RetrieveFile",
@@ -298,11 +406,12 @@ class WebSocketServer:
         client = find_key_by_value(
             self.client_username_to_session_id, session_id)
         host = find_key_by_value(
-            self.active_host_username_to_session_id, session_id)
+            self.host_username_to_session_id, session_id)
         if client:
             self.client_username_to_session_id[client[0]] = None
         if host:
-            self.active_host_username_to_session_id[host[0]] = None
+            self.host_username_to_session_id[host[0]] = None
+            self.active_hosts.remove(host[0])
 
         if session_id in self.socket_id_to_socket:
             del self.socket_id_to_socket[session_id]
@@ -336,6 +445,11 @@ class WebSocketServer:
                 elif request_type == "FetchAllFiles":
                     await self.fetch_all_files(websocket, json_obj)
 
+                elif request_type == "RedistributeFiles":
+                    await self.redistribute_files(websocket, json_obj)
+
+                elif request_type == "FreeFile":
+                    await self.free_file(websocket, json_obj)
                 else:
                     # if you reach here the request is invalid
                     print("ERROR: Invalid request made")
