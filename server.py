@@ -127,7 +127,8 @@ class WebSocketServer:
         except StopIteration as e:
             resp = {
                 "status": "Failure",
-                "message": "No available host at the moment"
+                "message": "No available host at the moment",
+                "requestType": "SaveFile"
             }
             print("ERROR: Host username registration failed!")
             # this is the client websocket the error will be sent to
@@ -154,7 +155,8 @@ class WebSocketServer:
             await self.send_file_to_host(websocket, msg_obj)
             resp = {
                 "status": "Success",
-                "message": suc_msg
+                "message": suc_msg,
+                "requestType": "SaveFile"
             }
             print(">> Dict in client " +
                   msg_obj["username"] + " : ")
@@ -164,7 +166,8 @@ class WebSocketServer:
             print("ERROR: Client not initialized properly")
             resp = {
                 "status": "Failure",
-                "message": "Client not initialized properly"
+                "message": "Client not initialized properly",
+                "requestType": "SaveFile"
             }
             await websocket.send(json.dumps(resp))
 
@@ -246,7 +249,8 @@ class WebSocketServer:
                     if entity_type == "Client":
                         await self.client_retrieve_file(websocket, json_obj)
                 else:
-                    await self.handle_client_message(websocket, message)
+                    # await self.handle_client_message(websocket, message)
+                    pass
                 # elif request_type == "saveFile":
                 #     # saveFile()
                 #     pass
