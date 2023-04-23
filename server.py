@@ -49,9 +49,10 @@ class WebSocketServer:
     async def init_client(self, websocket, msg_obj):
         print(f">> Client {websocket.id} initializing!")
         if websocket.id in self.connections:
-            self.client_username_to_session_id[msg_obj["username"]
-                                               ] = websocket.id
-            self.client_data_host[msg_obj["username"]] = dict()
+            username = msg_obj["username"]
+            self.client_username_to_session_id[username] = websocket.id
+            if username not in self.client_data_host:
+                self.client_data_host[username] = dict()
             resp = {
                 "status": "Success",
                 "message": msg_obj["username"],
@@ -306,6 +307,7 @@ class WebSocketServer:
         if session_id in self.socket_id_to_socket:
             del self.socket_id_to_socket[session_id]
 
+        print(self.client_data_host)
         print(f"{session_id} disconnected")
 
     async def server(self, websocket, path):
